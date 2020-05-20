@@ -1,0 +1,285 @@
+---
+title: "TSA Assignment 8"
+author: "Christian Hilscher - 1570550"
+date: "4/5/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+rm(list=ls())
+library(ggplot2)
+library(tidyr)
+
+#Defining color palette
+cbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+############################################
+# Defining all functions I need later
+############################################
+
+# Function for shifting the variables back - i.e. get e_{t-1} from e_t
+shift <- function(x, lag) {
+  n <- length(x)
+  xnew <- rep(NA, n)
+  if (lag < 0) {
+    xnew[1:(n-abs(lag))] <- x[(abs(lag)+1):n]
+  } else if (lag > 0) {
+    xnew[(lag+1):n] <- x[1:(n-lag)]
+  } else {
+    xnew <- x
+  }
+  return(xnew)
+}
+
+spectral_dens <- function(q, lambda, Mod=0){
+  i = complex(real = 0, imaginary = 1)
+  
+  total_l <- 0
+  for (l in seq((-q), q)){
+    value <- exp(i*lambda*(-l))
+    total_l <- total_l + value
+  }
+  
+  total_j <- 0
+  for (j in seq((-q), q)){
+    value <- exp(i*lambda*j)
+    total_j <- total_j + value
+  }
+  
+  T_c <- 1/(2*q + 1)**2 * (total_j*total_l)
+  spectral_d <- T_c * 1/(2*pi)
+  
+  if (Mod==0){
+    return(spectral_d)
+  } else if (Mod==1){
+    return(Mod(spectral_d))
+  }
+  else{
+    stop('Please provide either 0 or 1 as argument for Mod')
+  }
+}
+
+
+f_lambda <- function(lambdas, q_list){
+  df <- data.frame(lambdas)
+  for (q in q_list){
+    
+    sp_densitites <- mapply(spectral_dens, q=q, lambda=lambdas)
+    num_sp_densitites <- Mod(sp_densitites)
+    
+    name <- "density_q"
+    fullname <- paste(name, toString(q), sep="")
+    
+    df[[fullname]] <- num_sp_densitites
+  }
+  return(df)
+}
+
+VR <- function(lambdas, q_list){
+  df <- data.frame(lambdas)
+  for (q in q_list){
+    s_lambda0 <- vector()
+    for (lambda in lambdas){
+      s_current <- 2* integrate(spectral_dens, 0, lambda, q=q, Mod=1)$value
+      s_lambda0 <- rbind(s_lambda0, s_current)
+    }
+    
+    s_pi <- 2* integrate(spectral_dens, 0, pi, q=q, Mod=1)$value
+    
+    name <- "VR_q"
+    fullname <- paste(name, toString(q), sep="")
+    
+    results <- s_lambda0/s_pi
+    df[[fullname]] <- results
+  }
+  
+  return(df)
+}
+
+prepare_plot <- function(df){
+  df_plot <- pivot_longer(df, -lambdas, names_to="q", values_to="values")
+  return(df_plot)
+}
+```
+
+# Question 13
+
+I first rewrite $c_j$ as a function of the transfer function:
+
+\begin{align*}
+c_j &= \frac{1}{2 \pi} \int_{-\pi}^{\pi} e^{ij \lambda} \Psi(\lambda) d\lambda \\
+&= \frac{1}{2 \pi} \left ( \underbrace{\int_{-\pi}^{- \lambda_h} (\cdot) d\lambda}_{0} + \int_{- \lambda_h}^{- \lambda_l} (\cdot) d\lambda + \underbrace{\int_{-\lambda_l}^{- \lambda_h} (\cdot) d\lambda}_{0} + \int_{\lambda_l}^{\lambda_h} (\cdot) d\lambda + \underbrace{\int_{\lambda_h}^{\pi} (\cdot) d\lambda}_{0} \right ) 
+\end{align*}
+
+This splitting up now allows me to analyse the terms which are not zero:
+
+\begin{align*}
+c_j =& \frac{1}{2 \pi} \left( \int_{- \lambda_h}^{- \lambda_l} e^{ij \lambda} d\lambda + \int_{\lambda_l}^{\lambda_h} e^{ij \lambda} d\lambda \right) \\
+=& \frac{1}{2 \pi} \left( \left[ \frac{1}{ij} e^{ij \lambda} \right]^{- \lambda_l}_{- \lambda_h} + \left[ \frac{1}{ij} e^{ij \lambda} \right]^{\lambda_h}_{\lambda_l} \right) \qquad \text{for } j \neq 0 \\
+=& \frac{1}{2 \pi} \frac{1}{ij} \left( e^{ij \lambda_h} - e^{- ij \lambda_h} \right) - \left( e^{ij \lambda_l} - e^{- ij \lambda_l} \right) \\
+=& \frac{1}{2 \pi} \frac{1}{ij} \left( 2i \sin(j \lambda_h) \right) - \left( 2i \sin(j \lambda_l) \right) \\
+c_j =& \frac{1}{\pi j} (\sin(j \lambda_h) - \sin(j \lambda_l)) \quad \text{for } j \neq 0
+\end{align*}
+
+Coming to $j=0$ one can show that
+
+\begin{align*}
+c_0 =& \frac{1}{2 \pi} \left( \int_{- \lambda_h}^{- \lambda_l} e^{0i \lambda} d\lambda + \int_{\lambda_l}^{\lambda_h} e^{0i \lambda} d\lambda \right) \\
+=& \frac{1}{2 \pi} \left( \int_{- \lambda_h}^{- \lambda_l} 1 d\lambda + \int_{\lambda_l}^{\lambda_h} 1 d\lambda \right) \\
+=& \frac{1}{2 \pi} \left( - \lambda_h + \lambda_h + \lambda_h - \lambda_l \right) \\
+c_0 =& \frac{1}{\pi} (\lambda_h - \lambda_l)
+\end{align*}
+
+# Question 14
+
+### DGP
+To generate the data I use 500 points to represent all $\lambda_0$ which is enough to make the grpahs look nice and convey the overall idea without being computationally too intensive.
+
+```{r}
+### Initiating starting values and dataframes for storage
+points <- 500
+lambdas <- seq(from=0, 
+               to=pi, 
+               length.out = points)
+q_list = c(1, 3, 10)
+
+df_f <- f_lambda(lambdas, q_list)
+df_VR <- VR(lambdas, q_list)
+```
+
+### Getting the spectral density function
+
+As a start I rewrite the process a little bit
+
+\begin{align*}
+x_t =& \frac{1}{2q+1} \sum_{|j|\le q} \epsilon_{t-j} \\
+B(L) =& \frac{1}{2q+1} \sum_{|j|\le q} \\
+B(e^{-i\lambda}) =& \frac{1}{2q+1} \sum_{|j|\le q} e^{-i\lambda}
+\end{align*}
+
+Now using $\sigma = 1$, the spectral density $f_x(\lambda)$ is given by
+
+\begin{align*}
+f_x(\lambda) =& |B(e^{-i\lambda})|^2 \frac{\sigma}{2 \pi} \\
+=& \frac{1}{2 \pi} \left( \frac{1}{2q+1} \sum_{|j|\le q} e^{-i\lambda} \right)\left( \frac{1}{2q+1} \sum_{|j|\le q} e^{i\lambda} \right) \\
+=& \frac{1}{2 \pi} \frac{1}{(2q+1)^2} \sum_{|j|\le q} e^{-i\lambda} \sum_{|j|\le q} e^{i\lambda} \tag{1}
+\end{align*}
+
+The implementation of $(1)$ is given by the function below with the argument _Mod_ set to 0 to get imaginary numbers.
+
+```{r}
+spectral_dens <- function(q, lambda, Mod=0){
+  i = complex(real = 0, imaginary = 1)
+  
+  # First sum
+  total_l <- 0
+  for (l in seq((-q), q)){
+    value <- exp(i*lambda*(-l))
+    total_l <- total_l + value
+  }
+  
+  # Second sum
+  total_j <- 0
+  for (j in seq((-q), q)){
+    value <- exp(i*lambda*j)
+    total_j <- total_j + value
+  }
+  
+  T_c <- 1/(2*q + 1)**2 * (total_j*total_l)
+  spectral_d <- T_c * 1/(2*pi)
+  
+  # Whether or not to take the norm of the vector to convert it back
+  if (Mod==0){
+    return(spectral_d)
+  } else if (Mod==1){
+    return(Mod(spectral_d))
+  }
+  else{
+    stop('Please provide either 0 or 1 as argument for Mod')
+  }
+}
+```
+
+To actually compute the spectral density for $\lambda_0 \in [0, \pi]$ I run the following function which takes the list of 500 lambdas and the 3 values of q as arguments. The function _mapply_ allows me to use the whole vector as input for the scalar valued function defined above. For plotting the values I take the norm and finally add them to a dataframe.
+
+```{r}
+f_lambda <- function(lambdas, q_list){
+  df <- data.frame(lambdas)
+  for (q in q_list){
+    
+    sp_densitites <- mapply(spectral_dens, q=q, lambda=lambdas)
+    num_sp_densitites <- Mod(sp_densitites)
+    
+    name <- "density_q"
+    fullname <- paste(name, toString(q), sep="")
+    
+    df[[fullname]] <- num_sp_densitites
+  }
+  return(df)
+}
+```
+
+The result of this can be seen in the first figure
+
+```{r, include=FALSE}
+df_f_plot <- prepare_plot(df_f)
+
+p1=ggplot(data=df_f_plot, aes(x=lambdas, y=values, colour=q)) + 
+  geom_line(alpha=0.8, size=0.7) + 
+  scale_colour_manual(values = cbPalette) +
+  xlab('Lambda') + 
+  ylab(expression(f[x](lambda))) + 
+  ggtitle("Values of the spectal density function over the interval [0,pi]")
+```
+
+```{r, echo=FALSE}
+plot(p1)
+```
+
+### Getting the variance shares
+
+For getting the share of the varainces whose components happen with a frequency lower than $\lambda_0$, I run the following function. Similar to the spectral density function it takes as arguments the list of lambdas and the different values of _q_. Although all of the results of the integration have only real parts, I need to convert them since R still thinks of them as complex values and then the integration function does not work. At the end again a dataframe is being filled up since this way of storing the values makes plotting easier afterwards.
+
+```{r}
+VR <- function(lambdas, q_list){
+  df <- data.frame(lambdas)
+  for (q in q_list){
+    s_lambda0 <- vector()
+    for (lambda in lambdas){
+      s_current <- 2* integrate(spectral_dens, 0, lambda, q=q, Mod=1)$value
+      s_lambda0 <- rbind(s_lambda0, s_current)
+    }
+    
+    s_pi <- 2* integrate(spectral_dens, 0, pi, q=q, Mod=1)$value
+    results <- s_lambda0/s_pi
+    
+    name <- "VR_q"
+    fullname <- paste(name, toString(q), sep="")
+    
+    df[[fullname]] <- results
+  }
+  
+  return(df)
+}
+```
+
+Talking about plotting, $VR(\lambda_0; q)$ is 
+
+```{r, include=FALSE}
+df_VR_plot <- prepare_plot(df_VR)
+
+p2=ggplot(data=df_VR_plot, aes(x=lambdas, y=values, colour=q)) + 
+  geom_line(alpha=0.8, size=0.7) + 
+  scale_colour_manual(values = cbPalette) +
+  xlab('Lambda') + 
+  ylab(expression(VR(lambda[0],q))) +
+  ggtitle("Values of the VR as a function of lambda between [0,pi]")
+```
+
+
+```{r, echo=FALSE}
+plot(p2)
+```
