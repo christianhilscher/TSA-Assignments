@@ -1,0 +1,109 @@
+---
+title: "TSA Assignment 3"
+author: "Christian Hilscher - 1570550"
+date: "3/6/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Question 6
+
+```{r include=FALSE}
+# Importing Dataset and setting working directories
+rm(list=ls())
+library(readxl)
+library(forecast)
+library(texreg)
+library(ggplot2)
+
+data_path <- file.path("/Users/christianhilscher/Library/Mobile Documents/com~apple~CloudDocs/UniMA/2nd Semester/Time Series Analysis/Data/GDP_DE_seas_adj_Fed_StLouis.xls")
+```
+
+## 1.) Constructing Dataset
+
+I first read in the data and construct the growth rate of the seasonally adjusted GDP.
+```{r}
+df <- read_excel(data_path, skip=10)
+
+# Generating time series object
+gdp <- ts(df[2], frequency=4, start = c(1991, 1))
+
+# Computing quarterly growth rate
+r <- log(gdp) - log(lag(gdp))
+```
+
+## 2.) Model selection
+
+For a beginning, I try all possible combinations of AR and MA models from 0 to 10. The results are stored in the matrix such that I can access the model parameters with the lowest AIC. 
+
+&nbsp;
+
+```{r}
+# Getting best model by hand aka brute force:
+
+p_max <- 10   # 10 should be enough but could change to more
+q_max <- 10
+# Initializing space for p, q and respective AIC to be stored
+info_mat <- matrix(NA, nrow = (p_max+1)*(q_max+1), ncol = 3)
+
+
+counter <- 1
+# Nested loop to try all different combinations
+for (p in seq(from=0, to=p_max)){
+  for (q in seq(from=0, to=q_max)){
+    
+    modl <- arima0(r, order = c(p, 0, q), optim.control = list(maxit = 1000))
+    
+    info <- c(p, q, modl$aic)
+    info_mat[counter,] <- info
+    counter <- counter + 1
+  }
+}
+
+# Saving the parameters of the model with the lowest AIC
+p_opt <- info_mat[which.min(info_mat[,3]),][1]
+q_opt <- info_mat[which.min(info_mat[,3]),][2]
+aic_opt <- info_mat[which.min(info_mat[,3]),][3]
+
+```
+
+
+
+The optimal parameters with this approach are $p =$ `r p_opt`, $q =$ `r q_opt` with $AIC =$ `r aic_opt`.
+Using this specification, the coefficients are then given by
+
+```{r}
+# Fitting the optimal model
+fit_1 <- arima0(r, order=c(p_opt, 0, q_opt))
+fit_1$coef
+```
+&nbsp;
+
+To double check, I also use an R package which is supposed to find the best fitting ARMA model given an incformation criterion. The order is the same as with the approach above and the coefficients are identical as well.
+
+&nbsp;
+
+```{r}
+# Trying out R-Package auto.arima to see whether they get same results as my 
+# brute force approach
+fit_2 <- auto.arima(r, ic='aic')
+fit_2$coef
+```
+
+
+&nbsp;
+
+## 3.) Serial correlation
+To get a grip on whether the errors are serially correlated I look at the autocorrelations. 
+None of the lags are statistically different from 0 which can be taken as evidence that the $ARMA(1,0)$ model accurately captures the dynamics of the time series.
+
+
+```{r echo=FALSE ,figwidth=3, figheigth=3}
+# Plotting the autocorrelations of the errors from the model
+residuals_model1 <- fit_1$residuals
+acf(residuals_model1, lag.max = 100, 
+    main='Autocorrelations of the residuals from the ARMA(1,0) model')
+```

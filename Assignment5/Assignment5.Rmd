@@ -1,0 +1,288 @@
+---
+title: "TSA Assignment 5"
+author: "Christian Hilscher - 1570550"
+date: "4/2/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Question 9
+
+```{r include=FALSE}
+# Importing Dataset and setting working directories
+rm(list=ls())
+library(readxl)
+library(forecast)
+library(texreg)
+library(Metrics)
+library(knitr)
+library(ggplot2)
+
+data_path <- file.path("/Users/christianhilscher/Library/Mobile Documents/com~apple~CloudDocs/UniMA/2nd Semester/Time Series Analysis/Data/GDP_DE_seas_adj_Fed_StLouis.xls")
+```
+
+## a.) Constructing Dataset
+
+I first read in the data and construct the growth rate of the seasonally adjusted GDP.
+```{r}
+df <- read_excel(data_path, skip=10)
+
+# Generating time series object
+gdp <- ts(df[2], frequency=4, start = c(1991, 1))
+
+# Computing quarterly growth rate
+r <- log(gdp) - log(lag(gdp))
+```
+
+
+## b.) Setting up functions
+```{r}
+# Function for looping over all models
+get_predictions <- function(data_train){
+  
+  # Initializing space
+  prediction_list <- vector()
+  
+  # Looping over all models
+  for (i in seq(from=0, to=3)){
+  
+    modl <- arima(data_train, order = c(i, 0, 0), 
+                   optim.control = list(maxit = 1000))
+    prediction <- predict(modl, n.ahead=1, se.fit=FALSE)
+    prediction_list <- c(prediction_list, prediction)
+  }
+  
+  # Returning a list with all predictions givena dataset
+  return(prediction_list)
+}
+
+# Function for generating the dataset. If I want to predict 
+# the value of observation 106, I use all obsrvations up to
+# 105 for training the model.
+get_dataset <- function(orig_data, go_back){
+  data_out <- orig_data[0:(length(orig_data)- go_back)]
+  return(data_out)
+}
+```
+## c.) Alternative 1 (The way I now think you meant it)
+
+Now I start first predicting Q2 of 2016 up to Q3 2017, in total the last six observations. I always use all of the available data for making the next one-step ahead forecast. The predictions I then save in a matrix with the rows being the different models and the columns holding the predictions from the earliest to the last. Afterwards the RMSEs are calculated for each of the $AR(p)$ models.
+ 
+```{r}
+# Setting up space for the predictions
+prediction_matrix <- matrix(NA, nrow = 4, ncol = 6)
+rmse_vector <- vector()
+# Saving the real values to compute the RMSEs at the end
+real_values <- tail(r, 6)
+
+# Getting the predictions.
+# Need to reverse the counter since the highest number is
+# the prediction for the earliest date
+for (i in rev(seq(from=1, to=6))){
+    df <- get_dataset(r, i)
+    predictions <- get_predictions(df)
+    
+    # Need to fill the prediction matrix backwards to have the correct order
+    prediction_matrix[,(7-i)] <- predictions
+}
+
+# Calculating the RMSE for each model
+for(p in seq(1, 4)){
+  error <- rmse(real_values, prediction_matrix[p,])
+  rmse_vector <- c(rmse_vector, error)
+}
+
+```
+The RMSEs I get for each model are then
+
+| Model |        AR(0)       |        AR(1)       |        AR(2)       |        AR(3)       |
+|-------|--------------------|--------------------|--------------------|--------------------|
+|RMSE   | `r rmse_vector[1]` | `r rmse_vector[2]` | `r rmse_vector[3]` | `r rmse_vector[4]` |
+
+Choosing based on the root mean squared errors, I'd recommend the $AR(1)$ model.
+
+
+## c.) Alternative 2 (The way I thought you meant it originally)
+Here I'll do a six-step ahead forecast and choose the model then on the basis of the RMSE from those six predictions.
+I use the first 101 of the in total 107 observations to fit the $AR(p)$ models with $p=0,1,2 \text{ and } 3$. First I use all of the available data for each model to fit. In a second run I disregard the first $(3-p)$ observations for each model sucht that all of them have the same amount of data avaiable to them. This way I schould be able to see if the additional data available for the smaller $p$ models improves accuracy or not.
+```{r include = FALSE}
+to_ts <- function(time_list){
+  out_list <- ts(time_list, frequency=4, start=(c(2016,2)))
+  
+  return(out_list)
+}
+```
+
+```{r}
+obs_to_keep <- 6
+data_validation <- tail(r, obs_to_keep)
+data_train_full <- r[0:(length(r)-obs_to_keep)]
+
+rmse_list_full <- vector()
+rmse_list_restricted <- vector()
+
+for (i in seq(from=0, to=3)){
+  
+  modl1 <- arima(data_train_full, order = c(i, 0, 0), 
+                 optim.control = list(maxit = 1000))
+  
+  # Restricting the information
+  data_train_restricted <- r[(3-i):(length(r)-obs_to_keep)]
+  modl2 <- arima(data_train_restricted, order = c(i, 0, 0), 
+                 optim.control = list(maxit = 1000))
+  
+  y_pred_full  <- predict(modl1, n.ahead=obs_to_keep, se.fit=FALSE)
+  y_pred1 <- to_ts(y_pred_full)
+  
+  y_pred_restricted  <- predict(modl2, n.ahead=obs_to_keep, se.fit=FALSE)
+  y_pred2 <- to_ts(y_pred_restricted)
+  # Calculating RMSE
+  err1 <-  rmse(data_validation, y_pred1)
+  err2 <-  rmse(data_validation, y_pred2)
+  
+  #Appending RMSE
+  rmse_list_full <- c(rmse_list_full, err1)
+  rmse_list_restricted <- c(rmse_list_restricted, err2)
+}
+```
+
+From this I get the following RMSEs:
+
+| Model | RMSE using all data   | RMSE using restricted data |
+|-------|-----------------------|----------------------------|
+|$AR(0)$| `r rmse_list_full[1]` | `r rmse_list_restricted[1]`|
+|$AR(1)$| `r rmse_list_full[2]` | `r rmse_list_restricted[2]`|
+|$AR(2)$| `r rmse_list_full[3]` | `r rmse_list_restricted[3]`|
+|$AR(3)$| `r rmse_list_full[4]` | `r rmse_list_restricted[4]`|
+ : Comparison of errors
+ 
+ For the first two models the additional information from using the whole dataset shows up in somewhat lower RMSEs but the difference is pretty small. This seems reasonable when keeping in mind that for the $AR(0)$ the three additional observations are an increase of something marginally above 3\% and even less for the other models. \newline
+ Either way, the RMSE in both specifications is the lowest for the $AR(3)$ model which based on this information is the one I'd take.
+
+# Question 10
+
+
+
+## a.) Show that $T^{-5/2} \sum_{t=1}^{T} t^2 \epsilon_t \xrightarrow{\text{d}} \sigma W(1) - 2 \sigma \int_0^1 r W(r) dr$:
+
+
+ First looking at $\sum_{t=1}^{T} t^2 \epsilon_t$ where rewriting yields
+ 
+ \begin{align*}
+     \sum_{t=1}^{T} t^2 \epsilon_t &= \sum_{t=1}^{T} \left ( \sum_{s=1}^t \right ) t \epsilon_t \\
+     &= \sum_{s=1}^{T} \left ( \sum_{t=1}^T t \epsilon_t - \sum_{t=1}^{s-1} t \epsilon_t  \right) \\
+     &= \underbrace{T \left (\sum_{t=1}^T t \epsilon_t \right )}_{= A} - \underbrace{\sum_{s=1}^{T} \left ( \sum_{t=1}^{s-1} t \epsilon_t \right ) }_{= B}
+ \end{align*}
+ 
+ Concentrating on $B$ for a second one can see that
+ \begin{align*}
+     \sum_{s=1}^{T} \sum_{t=1}^{s-1} t \epsilon_t &= \sum_{s=1}^{T} \sum_{t=1}^{s-1} \sum_{p=1}^t \epsilon_t \\
+     &= \sum_{s=1}^{T} \sum_{p=1}^{s-1} \sum_{t=p}^{s-1} \epsilon_t \\
+     &= \sum_{s=1}^{T} \sum_{p=1}^{s-1} \left ( \sum_{t=1}^{s-1} \epsilon_t - \sum_{t=1}^{p-1} \epsilon_t \right ) \\
+     &= \sum_{s=1}^{T} \sum_{p=1}^{s-1} x_{s-1} - \sum_{s=1}^{T} \sum_{p=1}^{s-1} x_{p-1} \\
+     &= \sum_{s=1}^{T} (s-1) x_{s-1}  - \sum_{s=1}^{T} \left ( \sum_{p=1}^{T} x_{p-1} - \sum_{p=s}^{T} x_{p-1} \right ) \\
+     &= \sum_{s=1}^{T} s x_{s-1} - \sum_{s=1}^{T} x_{s-1} - T \sum_{p=1}^{T} x_{p-1} + \sum_{s=1}^{T} \sum_{p=s}^{T} x_{p-1} \\
+     &= \sum_{s=1}^{T} s x_{s-1} - \sum_{s=1}^{T} x_{s-1} - T \sum_{p=1}^{T} x_{p-1} + \sum_{s=1}^{T} s x_{s-1}
+ \end{align*}
+  Now I rewrite all indices as t to make everything coherent and change $x_{t-1}$ to $x_t$:
+\begin{align*}
+    &\sum_{t=1}^{T} x_{t-1} = \sum_{t=1}^{T} x_{t} - T(x_0 + x_T) = \sum_{t=1}^{T} x_{t} + o_p(1) \\
+    &\text{and hence} \\
+    &B = 2 \sum_{t=1}^{T} t x_{t} - \sum_{t=1}^{T} x_{t} - T \sum_{t=1}^{T} x_{t}
+\end{align*}
+where the $o_p(1)$ comes from the multiplication of $T^{-5/2}$ which I will later add but I don't want to carry around those terms with me so I omit them now.
+
+Using the result from the lecture, I know that
+
+\begin{align*}
+    A &= T \left (\sum_{t=1}^T t \epsilon_t \right ) \\
+    &= T \left ( T \sum_{t=1}^T \epsilon_t - \sum_{t=1}^T x_t \right )
+\end{align*}
+
+Combining $A$ and $B$ then yields
+
+\begin{align*}
+    A-B &= T^2 \sum_{t=1}^T \epsilon_t - T \sum_{t=1}^T x_t - 2 \sum_{t=1}^{T} t x_{t} + \sum_{t=1}^{T} x_{t} + T \sum_{t=1}^{T} x_{t} \\
+    &= T^2 \sum_{t=1}^T \epsilon_t - 2 \sum_{t=1}^{T} t x_{t} + \sum_{t=1}^{T} x_{t}
+\end{align*}
+  
+ Multiplying with $T^{-5/2}$ results in
+ 
+ \begin{align*}
+     T^{-5/2} (A-B) &= T^{-1/2} \sum_{t=1}^T \epsilon_t - 2 (T^{-3/2}) \sum_{t=1}^T \frac{t}{T} x_{t} + T^{-5/2} \sum_{t=1}^{T} x_{t} \\
+     &=  \underbrace{T^{-1/2} \sum_{t=1}^T \epsilon_t}_{\Lambda} - \underbrace{2 (T^{-3/2}) \sum_{t=1}^T \frac{t}{T} x_{t}}_{\Phi} + o_p(1)
+ \end{align*}
+The for the convergence of the first term I just use the result from the lecture. Regarding the second term, the interval for $r$ gets smaller and small as $T \to \infty$ and finally converges to $\frac{t}{T}$. Then,
+
+\begin{align*}
+    \Lambda \xrightarrow{d} \sigma W(1) \quad \text{and} \quad \Phi \xrightarrow{d} 2 \int_0^1 \sigma r W(r) dr \\
+\end{align*}
+Putting everything together:
+\begin{align*}
+    T^{-5/2} \sum_{t=1}^{T} t^2 \epsilon_t \quad = \quad T^{-5/2} (A-B) \quad \xrightarrow{d} \quad \sigma W(1) - 2 \int_0^1 \sigma r W(r) dr
+\end{align*}
+
+## b.) Find the variance of the limit
+
+I can rewrite the variance as 
+
+\begin{align*}
+    var \left (\sigma W(1) - 2 \int_0^1 \sigma r W(r) dr \right ) =& var \left( \sigma W(1) \right) \\
+    +& var \left( 2 \int_0^1 \sigma r W(r) dr \right) \\
+    -& 2 cov \left(\sigma W(1), 2 \int_0^1 \sigma r W(r) dr \right)
+\end{align*}
+where I use the result from the lecture regarding the first term such that 
+\begin{align*}
+    var \left( \sigma W(1) \right) = \frac{1}{3} \sigma^2
+\end{align*}
+
+For the second term I rewrite it a little bit
+
+\begin{align*}
+    var \left( 2 \int_0^1 \sigma r W(r) dr \right) &= 4 \sigma^2 var \left( \int_0^1 r W(r) dr \right) \\
+    &= 4 \sigma^2 var \left( \int_0^1 (1-r^2) dW(r) \right) \\
+    &= 4 \sigma^2 \int_0^1 (1-r^2)^2 dr \\
+    &= 4 \sigma^2 \left [r - \frac{2}{3}r^3 + \frac{1}{5}r^5 \right]^1_0 \\
+    &= 4 \sigma^2 \frac{8}{15}
+\end{align*}
+
+Regarding the covariance, rearranging results in
+
+\begin{align*}
+    cov \left(\sigma W(1), 2 \int_0^1 \sigma r W(r) dr \right) &= E \left[ 2 \sigma^2 W(1) \int_0^1 r W(r) dr \right] - \sigma \underbrace{E \left[ W(1) \right]}_{= 0} E \left[ 2 \sigma \int_0^1 r W(r) dr \right] \\
+    &= 2 \sigma^2  E \left[W(1) \int_0^1 (1-r^2) dW(r) \right] \\
+    &= 2 \sigma^2  E \left[W(1) \left[ (r- \frac{1}{3} r^3) \right]^1_0 \right] \\
+    &= \frac{1}{3} \sigma^2 E \left[ W(1) \right] = 0
+\end{align*}
+
+because the expectation of a Wiener process is zero. Putting the variance together then yields
+\begin{align*}
+    var \left (\sigma W(1) - 2 \int_0^1 \sigma r W(r) dr \right ) = \frac{1}{3} \sigma^2 + \frac{32}{15} \sigma^2 = \frac{37}{15} \sigma^2
+\end{align*}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
