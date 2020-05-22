@@ -109,6 +109,7 @@ data <- DGP(TS_length, Sample_size, b, models)
 M <- floor((TS_length-1)/2)
 lambdas <- (2*pi/TS_length) * seq(1:M)
 
+
 # Looping through the models
 for (model in models){
   pos <- which(models==model)
