@@ -1,8 +1,14 @@
 using Statistics
+using ProgressMeter
+using Plots
 ################################################################################
 # Defining Functions
-function get_x(e)
+function get_x()
+
     x_t = Array{Float64}(undef, M+T, S)
+
+    e = randn(Float64, M+T+1, S)
+    e[1,:] = zeros(S)
 
     x_t[1,:] = e[1,:]
     for i = 2:(M+T)
@@ -16,7 +22,7 @@ function get_ψ(d)
     ψ[1] = 1
 
     for j=1:M+T-1
-        ψ[j+1] = ((j-1-d)/j) * ψ[j]
+        ψ[j+1] = ((j-1+d)/j) * ψ[j]
     end
     return ψ
 end
@@ -33,7 +39,7 @@ function get_data(x, ψ)
     x_used = Array{Float64}(undef, M+T)
     x_tmp = zeros(M+T)
 
-    for s=1:S
+    @showprogress 1 "Generating Data..." for s=1:S
         # Running sample s
         x_used = x[:,s]
 
@@ -49,7 +55,6 @@ function get_data(x, ψ)
             y[col] = sum(ymat[:,col])
         end
         y_final[:,s] = y
-        println(s)
     end
     return y_final
 end
@@ -58,14 +63,16 @@ function Iy(λj, x)
     bigT = length(x)
     prefactor = (1/2*π*bigT)
 
+    # Making space
     firstpart = Array{Float64}(undef, bigT-1)
     secondpart = similar(firstpart)
 
+    #
     for t=1:bigT-1
         firstpart[t] = x[t] * cos(λj*(t-1))
         secondpart[t] = x[t] * sin(λj*(t-1))
     end
-    value = (sum(firstpart))^2 + (sum(secondpart))^2
+    value = prefactor * ((sum(firstpart))^2 + (sum(secondpart))^2)
     return value
 end
 
@@ -98,6 +105,7 @@ function objf(α, x, d)
 end
 
 function optimize_overd(α, x, ds)
+    # For LW
     values = Array{Float64}(undef, length(ds))
 
     for (i, d) in enumerate(ds)
@@ -161,13 +169,13 @@ function get_cis(n, α, type)
     m = floor(T^α)
     z = 1.96
     if type == 1
-        sigma = sqrt(m/4)
+        sigma = sqrt(1/(4*m))
     else
-        sigma = sqrt((m*π^2/24))
+        sigma = sqrt(((π^2)/(24*m)))
     end
 
-    ci_min = d - (z*sigma)/sqrt(n)
-    ci_max = d + z*sigma/sqrt(n)
+    ci_min = d - (z*sigma)
+    ci_max = d + (z*sigma)
 
     return (ci_min, ci_max)
 end
@@ -185,7 +193,7 @@ function calc_share(x, α, type)
 end
 
 function calc_bias(x)
-    bias = d - mean(x)
+    bias = mean(x) - d
     return bias
 end
 
@@ -213,16 +221,13 @@ end
 ################################################################################
 const M=2000
 const T=1000
-const S=100
+const S=1000
 const d=0.25
 const d_list = LinRange(-0.45, 0.45, 19)
 const α_list = LinRange(0.2, 0.8, 7)
+############
 
-
-e_t = randn(Float64, M+T+1, S)
-e_t[1,:] = zeros(S)
-
-x_one = get_x(e_t)
+x_one = get_x()
 ψ_one = get_ψ(d)
 
 y = get_data(x_one, ψ_one)
@@ -233,3 +238,11 @@ y_use = y[M+1:end,:]
 df_LW, df_PR = optimize_overα(α_list, y_use, d_list)
 # Calculating final results
 co_prob, b, sigma = cov_probs(df_LW, df_PR, α_list)
+###############################################################################
+MSE = b.^2 .+ sigma
+
+plot(α_list, abs.(b'), title="Plotting biases depending on α", label = ["LW" "PR"], lw=2)
+
+plot(α_list, sigma', title="Plotting variances depending on α", label = ["LW" "PR"], lw=2)
+
+plot(α_list, MSE', title="Plotting MSE depending on α", label = ["LW" "PR"], lw=2)
